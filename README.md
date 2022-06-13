@@ -59,3 +59,14 @@ Use the cluster-config yaml.
 kind create cluster --name=cnnp --config=cluster-config.yaml --image=kindnode:v1.18.4
 ```
 
+### install cni
+
+Most succes with calico, flannel somewhat less. Have not tried weave yet
+
+```
+
+curl https://docs.projectcalico.org/manifests/calico-typha.yaml -o calico.yaml
+
+kubectl apply -f calico.yaml
+
+```
