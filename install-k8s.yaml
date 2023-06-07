@@ -1,0 +1,159 @@
+---
+- hosts: "nocluster"
+  remote_user: laurijssen
+  become: yes
+  become_method: sudo
+  become_user: root
+  gather_facts: yes
+  connection: ssh
+
+  tasks:
+     - fail: msg="Please specify version example 1.26.1"
+       when: version is undefined
+
+     - name: Distribution version
+       debug: msg="{{ ansible_distribution }} {{ ansible_distribution_version}} {{ ansible_distribution_major_version }}"
+
+     - name: Create containerd config file
+       file:
+         path: "/etc/modules-load.d/containerd.conf"
+         state: "touch"
+
+     - name: Add conf for containerd
+       blockinfile:
+         path: "/etc/modules-load.d/containerd.conf"
+         block: |
+               overlay
+               br_netfilter
+
+     - name: modprobe
+       shell: |
+               modprobe overlay
+               modprobe br_netfilter
+
+     - name: Set system configurations for Kubernetes networking
+       file:
+         path: "/etc/sysctl.d/99-kubernetes-cri.conf"
+         state: "touch"
+
+     - name: Add conf for containerd
+       blockinfile:
+         path: "/etc/sysctl.d/99-kubernetes-cri.conf"
+         block: |
+                net.bridge.bridge-nf-call-iptables = 1
+                net.ipv4.ip_forward = 1
+                net.bridge.bridge-nf-call-ip6tables = 1
+
+     - name: Apply new settings
+       command: sysctl --system
+
+     - name: Download files
+       ansible.builtin.apt:
+        name:  containerd
+        state: present
+
+     - name: Configure containerd
+       shell: |
+               mkdir -p /etc/containerd
+               containerd config default | tee /etc/containerd/config.toml               
+
+     - name: SystemdCgroup true
+       shell: |
+              sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+              systemctl restart containerd
+
+     - name: Disable swap
+       shell: |
+               swapoff -a
+               sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+     - name: download files
+       ansible.builtin.apt:
+        pkg: 
+        - curl
+        - apt-transport-https
+
+     - name: Install and configure dependencies
+       shell: |
+               curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add -
+       
+     - name: Create kubernetes repo file
+       file:
+         path: "/etc/apt/sources.list.d/kubernetes.list"
+         state: "touch"
+
+     - name: Add K8s Source
+       blockinfile:
+         path: "/etc/apt/sources.list.d/kubernetes.list"
+         block: |
+               deb https://apt.kubernetes.io/ kubernetes-xenial main
+
+     - name: Install kubernetes
+       shell: |
+               apt-get update
+               apt-get install -y kubelet={{ version }}-00 kubeadm={{ version }}-00 kubectl={{ version }}-00
+               apt-mark hold kubelet kubeadm kubectl
+
+     - name: Display stop kubelet if running
+       shell: |
+               systemctl stop kubelet
+
+- hosts: masters
+  remote_user: a.s.laurijssen@fujicolor.nl
+  become: yes
+  become_method: sudo
+  become_user: root
+  gather_facts: yes
+  connection: ssh
+
+  tasks:
+    - name: Distribution version
+      debug: msg="{{ ansible_distribution }} {{ ansible_distribution_version}} {{ ansible_distribution_major_version }}"
+
+    - name: Restart containerd
+      shell:
+          systemctl restart containerd
+
+    - name: Reset cluster
+      shell:
+          kubeadm reset -f
+
+    - name: Initialize the cluster
+      shell:
+          kubeadm init --pod-network-cidr=10.244.0.0/16
+      args:
+       chdir: $HOME
+       creates: cluster_initialized.txt
+
+    - name: Create .kube directory
+      file:
+       path: $HOME/.kube
+       state: directory
+       mode: 0755
+
+    - name: Copies admin.conf to user's kube config
+      copy:
+       src: /etc/kubernetes/admin.conf
+       dest: $HOME/.kube/config
+       remote_src: yes
+
+    - name: Copy admin.conf to local machine
+      fetch:
+        dest: ./configremote
+        src: $HOME/.kube/config
+
+    # - name: Install Pod network
+    #   shell: kubectl apply -f kube-flannel.yml
+    #   args:
+    #    chdir: $HOME
+
+    - name: Get the token for joining the worker nodes
+      shell: kubeadm token create  --print-join-command
+      register: kubernetes_join_command
+
+    - debug:
+        msg: "{{ kubernetes_join_command.stdout }}"
+
+    - name: Copy join command to local file.
+      local_action: copy content="{{ kubernetes_join_command.stdout_lines[0] }}" dest="./configremote/kubernetes_join_command" mode=0666
+      become: no
