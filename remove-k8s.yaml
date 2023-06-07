@@ -1,0 +1,58 @@
+---
+- hosts: "nocluster"
+  remote_user: laurijssen
+  become: yes
+  become_method: sudo
+  become_user: root
+  gather_facts: yes
+  connection: ssh
+  
+  tasks:
+     - name: Distribution version
+       debug: msg="{{ ansible_distribution }} {{ ansible_distribution_version}} {{ ansible_distribution_major_version }}"
+
+     - name: Remove containerd config file
+       file:
+         path: "/etc/modules-load.d/containerd.conf"
+         state: "absent"
+
+     - name: Remove system configurations for Kubernetes networking
+       file:
+         path: "/etc/sysctl.d/99-kubernetes-cri.conf"
+         state: absent
+
+     - name: Remove containerd
+       shell: |
+               apt-get update && apt-get remove -y containerd               
+               systemctl stop containerd
+
+     - name: remove config.toml
+       file:
+        path: /etc/containerd/config.toml
+        state: absent
+
+     - name: remove containerd dir
+       file:
+        path: /etc/containerd
+        state: absent
+
+     - name: Delete k8s key
+       shell: |
+               curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key del -
+
+     - name: Remove kubernetes repo file
+       file:
+         path: "/etc/apt/sources.list.d/kubernetes.list"
+         state: absent
+
+     - name: Remove kubernetes
+       shell: |
+               systemctl stop kubelet
+               kubeadm reset -f 2>/dev/null
+               apt-get update
+               apt-get remove -y kubelet kubeadm kubectl --allow-change-held-packages
+
+     - name: Remove CNI dir
+       file:
+         path: /etc/cni/net.d
+         state: absent
