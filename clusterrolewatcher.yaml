@@ -1,0 +1,9 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  namespace: default
+  name: watcher
+rules:
+- apiGroups: [""]
+  resources: ["pods", "nodes", "crontabs", "configmaps", "services", "deployments"]
+  verbs: ["get", "watch", "list"]
