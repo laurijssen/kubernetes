@@ -1,0 +1,11 @@
+apiVersion: actions.summerwind.dev/v1alpha1
+kind: RunnerDeployment
+metadata:
+  name: fips-runnerdeploy
+spec:
+  replicas: 2
+  template:
+    spec:
+      organization: laurijssen
+# repository level
+#     repository: somerepository
