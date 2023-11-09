@@ -1,0 +1,138 @@
+- import_playbook: config-machine.yml
+
+- hosts: "{{ targets }}"
+  become: yes
+  remote_user: a.s.laurijssen@fujicolor.nl
+  become_method: sudo
+  become_user: root
+  gather_facts: yes
+  connection: ssh
+
+  vars:
+  - advertiseip: "{{ ip }}"
+
+  tasks:
+     - name: facts
+       debug: msg="{{ ansible_distribution }} {{ ansible_distribution_version}} {{ ansible_distribution_major_version }}"
+     
+     - name: get HOME
+       user:
+        name: a.s.laurijssen@fujicolor.nl
+        state: present
+       register: thisuser
+
+     - name: install packages
+       apt:
+         pkg:
+         - apt-transport-https
+         - ca-certificates
+         - curl
+         - gpg
+
+     - name: remove old keyring
+       file:
+         path: /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+         state: absent
+
+     - name: get k8s keyring
+       shell: |
+         curl -fsSL https://pkgs.k8s.io/core:/stable:/{{ version }}/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg
+       args:
+         warn: no
+
+     - name: 
+       apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/{{ version }}/deb/ /"
+        state: present       
+
+     - name: Unhold kubeadm
+       dpkg_selections:
+        name: kubeadm
+        selection: install
+
+     - name: Unhold kubelet
+       dpkg_selections:
+        name: kubelet
+        selection: install
+
+     - name: Unhold kubectl
+       dpkg_selections:
+        name: kubectl
+        selection: install
+
+     - name: reset master node
+       shell: |
+        kubeadm reset -f
+       ignore_errors: true
+
+     - name: install kubernetes tools
+       apt:
+         pkg:
+         - kubelet
+         - kubeadm
+         - kubectl
+
+     - name: Hold kubeadm
+       dpkg_selections:
+        name: kubeadm
+        selection: hold
+
+     - name: Unhold kubelet
+       dpkg_selections:
+        name: kubelet
+        selection: hold
+
+     - name: Unhold kubectl
+       dpkg_selections:
+        name: kubectl
+        selection: hold
+
+     - name: enable kubelet
+       systemd:
+        name: kubelet
+        enabled: true
+        masked: no        
+
+     - name: daemon-reload
+       systemd:
+        daemon_reload: true
+
+     - name: init controlplane
+       command: |
+         kubeadm init --pod-network-cidr=10.244.0.0/16 --control-plane-endpoint={{proxyip}}:8443 --apiserver-advertise-address={{advertiseip}} --upload-certs
+
+     - name: create config
+       file:
+         path: "{{ thisuser.home + '/.kube' }}"
+         state: directory
+
+     - name: copy kubeconfig
+       copy:
+        remote_src: true
+        src: /etc/kubernetes/admin.conf 
+        dest: "{{ thisuser.home + '/.kube/config' }}"
+        owner: "{{ thisuser.uid }}"
+        mode: '0644'
+      
+     - name: install flannel
+       command: kubectl apply -f https://github.com/flannel-io/flannel/releases/latest/download/kube-flannel.yml
+       become: no
+
+     - name: get proxy name
+       shell: |
+        dig -x {{ proxyip }} +short | awk '{ print substr($0, 1, length($0)-1) }' | head -n1 | tr '[:upper:]' '[:lower:]'
+       register: proxyname
+
+     - name: master schedulable
+       shell: | 
+        kubectl taint node {{ proxyname.stdout }} node-role.kubernetes.io/control-plane:NoSchedule-
+       become: no
+
+     - name: Get join string
+       shell: |
+        kubeadm token create --print-join-command
+       register: join_string
+       become: no
+
+     - name: print
+       debug: msg={{ join_string.stdout }}
