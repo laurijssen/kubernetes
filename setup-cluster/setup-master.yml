@@ -2,7 +2,7 @@
 
 - hosts: "{{ targets }}"
   become: yes
-  remote_user: a.s.laurijssen@fujicolor.nl
+  remote_user: laurijssen
   become_method: sudo
   become_user: root
   gather_facts: yes
