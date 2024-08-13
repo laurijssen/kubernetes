@@ -27,4 +27,4 @@ docker:
           context: ${{env.PRJ}}
           push: true
           build-args: packages_token=${{ secrets.PACKAGES_ACCESS_TOKEN }}          
-          tags: fujifilmimaging/${{env.PRJ}}:${{ env.VERSION }}
+          tags: ${{env.PRJ}}:${{ env.VERSION }}
