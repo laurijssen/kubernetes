@@ -1,0 +1,92 @@
+- hosts: "{{ targets }}"
+  become: yes
+  become_method: sudo
+  become_user: root
+  gather_facts: no
+  connection: ssh
+
+  tasks:
+     - name: privesc no password
+       shell: |
+            cat<<EOF > /etc/sudoers.d/admins 
+              laurijssen        ALL=(ALL)       NOPASSWD:ALL
+            EOF
+
+     - name: Create containerd config file
+       file:
+         path: "/etc/modules-load.d/containerd.conf"
+         state: "touch"
+
+     - name: Add conf for containerd
+       blockinfile:
+         path: "/etc/modules-load.d/containerd.conf"
+         block: |
+               overlay
+               br_netfilter
+
+     - name: modprobe
+       shell: |
+               modprobe overlay
+               modprobe br_netfilter
+
+     - name: system configuration for Kubernetes networking
+       file:
+         path: "/etc/sysctl.d/99-kubernetes-cri.conf"
+         state: "touch"
+
+     - name: Add containerd conf
+       blockinfile:
+         path: "/etc/sysctl.d/99-kubernetes-cri.conf"
+         block: |
+                net.bridge.bridge-nf-call-iptables = 1
+                net.ipv4.ip_forward = 1
+                net.bridge.bridge-nf-call-ip6tables = 1
+                net.bridge.bridge-nf-call-arptables = 1
+
+     - name: Apply new settings
+       command: sysctl --system
+
+     - name: install containerd
+       apt:
+        name:  containerd
+        state: present
+
+     - name: containerd dir
+       file:
+        path: /etc/containerd
+        state: directory
+
+     - name: stop containerd
+       systemd:
+        state: stopped
+        name: containerd
+
+     - name: configure containerd
+       shell: |
+              containerd config default > /etc/containerd/config.toml
+
+     - name: SystemdCgroup true
+       shell: |
+              sed -i 's/pause\:3\.8/pause\:3\.9/g' /etc/containerd/config.toml
+              sed -i 's/SystemdCgroup = false/SystemdCgroup = true/g' /etc/containerd/config.toml
+
+     - name: start containerd
+       systemd:
+        state: started
+        name: containerd
+
+     - name: Disable swap
+       shell: |
+               swapoff -a
+               sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+
+     - name: Deploy crictl.yaml
+       shell: |
+          cat <<EOF > /etc/crictl.yaml
+            runtime-endpoint: unix:///var/run/containerd/containerd.sock
+            image-endpoint: unix:///var/run/containerd/containerd.sock
+            timeout: 0
+            debug: false
+            pull-image-on-create: false
+            disable-pull-on-run: false
+          EOF
