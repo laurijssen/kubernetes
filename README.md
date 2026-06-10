@@ -1,3 +1,9 @@
+# Rancher setup example
+
+<img width="1541" height="514" alt="image" src="https://github.com/user-attachments/assets/cc47e878-680b-4544-b08f-3f65e5e17079" />
+
+
+
 # install github private runner
 
 1. install certmanager
