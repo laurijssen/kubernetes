@@ -98,7 +98,7 @@ function new()
 
 function initgit()
 {
-	gh repo create fujifilmimagingproductsandsolutions/${solution} --private
+	gh repo create laurijssen/${solution} --private
 
 	if [ $? -ne 0 ]; then
 		echo "could not create private github repo ${solution}"
@@ -111,7 +111,7 @@ function initgit()
 	git add .
 	git commit -m "initial commit"
 	git branch -M main
-	git remote add origin https://github.com/FujifilmImagingProductsAndSolutions/${solution}.git	
+	git remote add origin https://github.com/laurijssen/${solution}.git	
 	git push -u origin main
 }
 
